@@ -7,6 +7,10 @@ import matplotlib.image as mpimg
 import pandas as pd
 import cv2
 
+import torchvision.transforms.functional as TF
+import random
+import math
+
 
 class FacialKeypointsDataset(Dataset):
     """Face Landmarks dataset."""
@@ -36,7 +40,8 @@ class FacialKeypointsDataset(Dataset):
         if(image.shape[2] == 4):
             image = image[:,:,0:3]
         
-        key_pts = self.key_pts_frame.iloc[idx, 1:].as_matrix()
+#         key_pts = self.key_pts_frame.iloc[idx, 1:].as_matrix()
+        key_pts = self.key_pts_frame.iloc[idx, 1:].values
         key_pts = key_pts.astype('float').reshape(-1, 2)
         sample = {'image': image, 'keypoints': key_pts}
 
@@ -159,3 +164,50 @@ class ToTensor(object):
         
         return {'image': torch.from_numpy(image),
                 'keypoints': torch.from_numpy(key_pts)}
+
+
+def rotate_point(origin, point, angle):
+    """
+    Rotate a point counterclockwise by a given angle around a given origin.
+
+    The angle should be given in radians.
+    
+    SOURCE: https://stackoverflow.com/a/34374437
+    """
+    ox, oy = origin
+    px, py = point
+
+    qx = ox + math.cos(angle) * (px - ox) - math.sin(angle) * (py - oy)
+    qy = oy + math.sin(angle) * (px - ox) + math.cos(angle) * (py - oy)
+    return [qx, qy]
+    
+
+class RandomRotation(object):
+    """Randomly rotate an image around its center.
+    
+    Args:
+        angle: The maximum angle for the interval [-angle, angle]
+            used to sample the random rotation angle from.
+    """
+
+    def __init__(self, angle):
+        assert isinstance(angle, int)
+        self.angle = angle
+
+    def __call__(self, sample):
+        image, key_pts = sample['image'], sample['keypoints']
+
+        image_copy = np.copy(image)
+        key_pts_copy = np.copy(key_pts)
+        
+        image_pil = TF.to_pil_image(image_copy)
+        
+        random_angle = random.randint(-self.angle, self.angle)
+        image_pil = TF.rotate(image_pil, random_angle)
+
+        key_pts_copy = np.array([rotate_point((image_copy.shape[0]/2., image_copy.shape[1]/2.),
+                                              point, math.radians(-random_angle))
+                                 for point in key_pts_copy])     
+        image_copy = np.array(image_pil)
+
+        return {'image': image_copy, 'keypoints': key_pts_copy}
